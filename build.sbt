@@ -18,6 +18,8 @@ libraryDependencies += "org.apache.spark" %% "spark-sql" % "2.3.0"
 
 libraryDependencies += "org.apache.kafka" %% "kafka" % "0.10.0.1"
 
+libraryDependencies += "org.mongodb.spark" %% "mongo-spark-connector" % "2.4.0"
+
 //libraryDependencies += "info.batey.kafka" % "kafka-unit" % "0.7"
 
 //libraryDependencies += "net.sf.jopt-simple" % "jopt-simple" % "5.0.2"
