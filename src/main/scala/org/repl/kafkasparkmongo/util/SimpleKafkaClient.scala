@@ -12,7 +12,7 @@ import org.apache.kafka.common.serialization.{StringDeserializer, StringSerializ
 /**
   * Simple utilities for connecting directly to Kafka.
   */
-class SimpleKafkaClient(server: EmbeddedKafkaServer) {
+class SimpleKafkaClient(bootstrapServers: String) {
 
   def send(topic: String, pairs: Seq[(String, String)]) : Unit = {
     val producer = new KafkaProducer[String, String](basicStringStringProducer)
@@ -67,29 +67,28 @@ class SimpleKafkaClient(server: EmbeddedKafkaServer) {
     val config: Properties = new Properties
     config.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, classOf[StringSerializer].getCanonicalName)
     config.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, classOf[StringSerializer].getCanonicalName)
-    config.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, server.getKafkaConnect)
+    config.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers)
     //config.put(ProducerConfig.PARTITIONER_CLASS_CONFIG, "org.apache.kafka.clients.producer.internals.DefaultPartitioner")
     config
   }
 
   def basicStringStringConsumer : Properties = {
-    SimpleKafkaClient.getBasicStringStringConsumer(server)
+    SimpleKafkaClient.getBasicStringStringConsumer(bootstrapServers)
   }
 }
 
 object SimpleKafkaClient {
 
-  def getBasicStringStringConsumer(server: EmbeddedKafkaServer, group:String = "MyGroup") : Properties = {
+  def getBasicStringStringConsumer(bootstrapServers: String, group:String = "MyGroup") : Properties = {
     val consumerConfig: Properties = new Properties
     consumerConfig.put(ConsumerConfig.GROUP_ID_CONFIG, group)
     consumerConfig.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, classOf[StringDeserializer].getCanonicalName)
     consumerConfig.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, classOf[StringDeserializer].getCanonicalName)
-    consumerConfig.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, server.getKafkaConnect)
+    consumerConfig.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers)
     consumerConfig.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest")
 
     //consumerConfig.put(ConsumerConfig.PARTITION_ASSIGNMENT_STRATEGY, "roundrobin")
 
     consumerConfig
   }
-
 }

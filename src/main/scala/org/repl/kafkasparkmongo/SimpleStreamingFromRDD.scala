@@ -2,12 +2,14 @@ package org.repl.kafkasparkmongo
 
 import java.util.{Arrays, Properties}
 
+import com.mongodb.spark.MongoSpark
+import com.mongodb.spark.config.WriteConfig
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.types.{StringType, StructField, StructType}
 import org.apache.spark.streaming.kafka010.{ConsumerStrategies, KafkaUtils, LocationStrategies}
 import org.apache.spark.streaming.{Seconds, StreamingContext}
 import org.apache.spark.{SparkConf, SparkContext}
-import org.repl.kafkasparkmongo.util.{EmbeddedKafkaServer, SimpleKafkaClient, SparkKafkaSink}
+import org.repl.kafkasparkmongo.util.{SimpleKafkaClient, SparkKafkaSink}
 
 import scala.util.parsing.json.JSONObject
 
@@ -65,6 +67,17 @@ object SimpleStreamingFromRDD {
     println("Book schema")
     streamingDataFrame.printSchema()
     println("Books count: " + streamingDataFrame.count())
+    println("*** producing data")
+
+    val kafkaSink = sc.broadcast(SparkKafkaSink(config))
+    streamingDataFrame.rdd.foreach { row =>
+      // NOTE:
+      //     1) the keys and values are strings, which is important when receiving them
+      //     2) We don't specify which Kafka partition to send to, so a hash of the key
+      //        is used to determine this
+      kafkaSink.value.send(topic, row.getString(0), JSONObject(row.getValuesMap(row.schema.fieldNames)).toString())
+    }
+
     //streamingDataFrame.createOrReplaceTempView("books")
     //val sqlResult= spark.sql("select * from books")
     //sqlResult.show()
@@ -80,32 +93,21 @@ object SimpleStreamingFromRDD {
     query.awaitTermination()
   */
 
-    val kafkaSink = sc.broadcast(SparkKafkaSink(config))
-    println("*** producing data")
 
-    streamingDataFrame.rdd.foreach { row =>
-      // NOTE:
-      //     1) the keys and values are strings, which is important when receiving them
-      //     2) We don't specify which Kafka partition to send to, so a hash of the key
-      //        is used to determine this
-      kafkaSink.value.send(topic, row.getString(0), JSONObject(row.getValuesMap(row.schema.fieldNames)).toString())
-    }
   }
 
   def main(args: Array[String]) {
 
     val topic = "TopicBooks"
 
-    val kafkaServer = new EmbeddedKafkaServer()
-    kafkaServer.start()
-    kafkaServer.createTopic(topic, 4)
-
     val conf = new SparkConf().setAppName("SimpleStreamingFromRDD").setMaster("local[4]")
     val sc = new SparkContext(conf)
     // streams will produce data every second
     val ssc = new StreamingContext(sc, Seconds(1))
+
+    val spark = SparkSession.builder.config(sc.getConf).getOrCreate()
     // Create the stream.
-    val props: Properties = SimpleKafkaClient.getBasicStringStringConsumer(kafkaServer)
+    val props: Properties = SimpleKafkaClient.getBasicStringStringConsumer("localhost:9092")
 
     val kafkaStream = KafkaUtils.createDirectStream(
         ssc,
@@ -116,16 +118,23 @@ object SimpleStreamingFromRDD {
         )
       )
 
+    val writeConfig = WriteConfig(Map("uri" -> "mongodb://test:qwerty123@127.0.0.1/test.books"))
+
     // now, whenever this Kafka stream produces data the resulting RDD will be printed
-    kafkaStream.foreachRDD(r => {
+    kafkaStream.map(v => v.value).foreachRDD(r => {
       println("*** got an RDD, size = " + r.count())
-      r.foreach(s => println(s))
       if (r.count() > 0) {
         // let's see how many partitions the resulting RDD has -- notice that it has nothing
         // to do with the number of partitions in the RDD used to publish the data (4), nor
         // the number of partitions of the topic (which also happens to be four.)
         println("*** " + r.getNumPartitions + " partitions")
         r.glom().foreach(a => println("*** partition size = " + a.size))
+
+        val df = spark.read.json(r)
+        df.printSchema()
+        //r.foreach(s => println(s))
+        println("Writing to MongoDb")
+        MongoSpark.save(df, writeConfig)
       }
     })
 
@@ -137,7 +146,7 @@ object SimpleStreamingFromRDD {
 
     val producerThread = new Thread("Streaming Termination Controller") {
       override def run() {
-        val client = new SimpleKafkaClient(kafkaServer)
+        val client = new SimpleKafkaClient("localhost:9092")
 
         send(sc, topic, client.basicStringStringProducer)
 
@@ -159,9 +168,6 @@ object SimpleStreamingFromRDD {
 
     // stop Spark
     sc.stop()
-
-    // stop Kafka
-    kafkaServer.stop()
 
     println("*** done")
   }

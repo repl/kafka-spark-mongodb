@@ -16,9 +16,11 @@ libraryDependencies += "org.apache.spark" %% "spark-sql-kafka-0-10" % "2.3.0"
 
 libraryDependencies += "org.apache.spark" %% "spark-sql" % "2.3.0"
 
-libraryDependencies += "org.apache.kafka" %% "kafka" % "0.10.0.1"
+libraryDependencies += "org.apache.kafka" %% "kafka" % "2.2.0"
 
 libraryDependencies += "org.mongodb.spark" %% "mongo-spark-connector" % "2.4.0"
+
+libraryDependencies += "com.fasterxml.jackson.module" %% "jackson-module-scala" % "2.9.8"
 
 //libraryDependencies += "info.batey.kafka" % "kafka-unit" % "0.7"
 
