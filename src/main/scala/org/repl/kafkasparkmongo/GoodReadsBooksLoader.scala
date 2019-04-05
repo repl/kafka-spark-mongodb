@@ -5,7 +5,7 @@ import java.util.{Arrays, Properties}
 import com.mongodb.spark.MongoSpark
 import com.mongodb.spark.config.WriteConfig
 import org.apache.spark.sql.SparkSession
-import org.apache.spark.sql.types.{StringType, StructField, StructType}
+import org.apache.spark.sql.types.{ObjectType, StringType, StructField, StructType}
 import org.apache.spark.streaming.kafka010.{ConsumerStrategies, KafkaUtils, LocationStrategies}
 import org.apache.spark.streaming.{Seconds, StreamingContext}
 import org.apache.spark.{SparkConf, SparkContext}
@@ -13,7 +13,7 @@ import org.repl.kafkasparkmongo.util.{SimpleKafkaClient, SparkKafkaSink}
 
 import scala.util.parsing.json.JSONObject
 
-object Main {
+object GoodReadsBooksLoader {
 
   def main(args: Array[String]) {
 
@@ -35,7 +35,7 @@ object Main {
       )
     )
 
-    val writeConfig = WriteConfig(Map("uri" -> "mongodb://test:qwerty123@127.0.0.1/test.books"))
+    val writeConfig = WriteConfig(Map("uri" -> "mongodb://test:qwerty123@127.0.0.1/test.goodreadsbooks"))
 
     // now, whenever this Kafka stream produces data the resulting RDD will be printed
     kafkaStream.map(v => v.value).foreachRDD(r => {
@@ -100,24 +100,43 @@ object Main {
   def send(sc: SparkContext, topic: String, config: Properties): Unit = {
     val spark = SparkSession.builder.config(sc.getConf).getOrCreate()
     val mySchema = StructType(Array(
-      StructField("ISBN", StringType),
-      StructField("Title", StringType),
-      StructField("Author", StringType),
-      StructField("YearOfPublication", StringType),
-      StructField("Publisher", StringType),
-      StructField("ImageUrlS", StringType),
-      StructField("ImageUrlM", StringType),
-      StructField("ImageUrlL", StringType)
+      StructField("isbn", StringType),
+      StructField("text_reviews_count", StringType),
+      StructField("series", StringType),
+      StructField("country_code", StringType),
+      StructField("language_code", StringType),
+      StructField("popular_shelves", StringType),
+      StructField("asin", StringType),
+      StructField("is_ebook", StringType),
+      StructField("average_rating", StringType),
+      StructField("kindle_asin", StringType),
+      StructField("similar_books", StringType),
+      StructField("description", StringType),
+      StructField("format", StringType),
+      StructField("link", StringType),
+      StructField("authors", StringType),
+      StructField("publisher", StringType),
+      StructField("num_pages", StringType),
+      StructField("publication_day", StringType),
+      StructField("isbn13", StringType),
+      StructField("publication_month", StringType),
+      StructField("edition_information", StringType),
+      StructField("publication_year", StringType),
+      StructField("url", StringType),
+      StructField("image_url", StringType),
+      StructField("book_id", StringType),
+      StructField("ratings_count", StringType),
+      StructField("work_id", StringType)
     ))
     val dataFrame = spark.sqlContext
       .read
-      .format("csv")
-      .option("header", "true")
+      .format("json")
+      //.option("header", "true")
       //.option("mode", "DROPMALFORMED")
-      .option("delimiter", ";")
-      .option("inferSchema", true)
-      //.schema(mySchema)
-      .load("data/BX-Books.csv")
+      //.option("delimiter", ";")
+      //.option("inferSchema", true)
+      .schema(mySchema)
+      .load("data/goodreads/goodreads-onebook.json")
 
     println("Book schema")
     dataFrame.printSchema()

@@ -18,4 +18,3 @@ target/*
 logs/*
 .settings/
 checkpoint/
-data/
