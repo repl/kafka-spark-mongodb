@@ -2,10 +2,13 @@ package org.repl.kafkasparkmongo
 
 import java.util.{Arrays, Properties}
 
+import com.fasterxml.jackson.databind.ObjectMapper
+import com.fasterxml.jackson.module.scala.DefaultScalaModule
 import com.mongodb.spark.MongoSpark
 import com.mongodb.spark.config.WriteConfig
 import org.apache.spark.sql.SparkSession
-import org.apache.spark.sql.types.{ObjectType, StringType, StructField, StructType}
+import org.apache.spark.sql.types._
+import org.apache.spark.sql.functions._
 import org.apache.spark.streaming.kafka010.{ConsumerStrategies, KafkaUtils, LocationStrategies}
 import org.apache.spark.streaming.{Seconds, StreamingContext}
 import org.apache.spark.{SparkConf, SparkContext}
@@ -24,6 +27,7 @@ object GoodReadsBooksLoader {
     val ssc = new StreamingContext(sc, Seconds(1))
 
     val spark = SparkSession.builder.config(sc.getConf).getOrCreate()
+    import spark.implicits._
     val props: Properties = SimpleKafkaClient.getBasicStringStringConsumer("localhost:9092")
 
     val kafkaStream = KafkaUtils.createDirectStream(
@@ -37,6 +41,27 @@ object GoodReadsBooksLoader {
 
     val writeConfig = WriteConfig(Map("uri" -> "mongodb://test:qwerty123@127.0.0.1/test.goodreadsbooks"))
 
+    //UDF to parse JSON array String
+    val jsonConverter = udf { jsonString: String =>
+      val mapper = new ObjectMapper()
+      mapper.registerModule(DefaultScalaModule)
+      mapper.readValue(jsonString, classOf[Array[String]])
+    }
+    val popularShelvesSchema =
+      ArrayType(StructType(
+        Array(
+          StructField("count", StringType),
+          StructField("name", StringType)
+        )
+      ))
+    val authorsSchema =
+      ArrayType(StructType(
+        Array(
+          StructField("author_id", StringType),
+          StructField("role", StringType)
+        )
+      ))
+
     // now, whenever this Kafka stream produces data the resulting RDD will be printed
     kafkaStream.map(v => v.value).foreachRDD(r => {
       println("*** got an RDD, size = " + r.count())
@@ -46,10 +71,18 @@ object GoodReadsBooksLoader {
         // the number of partitions of the topic (which also happens to be four.)
         println("*** " + r.getNumPartitions + " partitions")
         r.glom().foreach(a => println("*** partition size = " + a.size))
-
-        val df = spark.read.json(r)
-        df.printSchema()
         //r.foreach(s => println(s))
+
+        //df.withColumn("similar_books_new", from_json($"similar_books", ArrayType(StringType)))
+        //df.select(from_json($"similar_books", ArrayType(StringType)) as "similar_books_new").show
+        //df.select(jsonConverter($"similar_books") as "similar_books_new").show
+        val df = spark.read.json(r)
+          .withColumn("similar_books", jsonConverter($"similar_books"))
+          .withColumn("series", jsonConverter($"series"))
+          .withColumn("authors", from_json($"authors", authorsSchema))
+          .withColumn("popular_shelves", from_json($"popular_shelves", popularShelvesSchema))
+        //df.printSchema()
+
         println("Writing to MongoDb")
         MongoSpark.save(df, writeConfig)
       }
@@ -102,19 +135,19 @@ object GoodReadsBooksLoader {
     val mySchema = StructType(Array(
       StructField("isbn", StringType),
       StructField("text_reviews_count", StringType),
-      StructField("series", StringType),
+      StructField("series", StringType), //ArrayType(StringType)
       StructField("country_code", StringType),
       StructField("language_code", StringType),
-      StructField("popular_shelves", StringType),
+      StructField("popular_shelves", StringType), //popularShelvesSchema
       StructField("asin", StringType),
       StructField("is_ebook", StringType),
       StructField("average_rating", StringType),
       StructField("kindle_asin", StringType),
-      StructField("similar_books", StringType),
+      StructField("similar_books", StringType), //ArrayType(StringType)
       StructField("description", StringType),
       StructField("format", StringType),
       StructField("link", StringType),
-      StructField("authors", StringType),
+      StructField("authors", StringType),  //authorsSchema
       StructField("publisher", StringType),
       StructField("num_pages", StringType),
       StructField("publication_day", StringType),
@@ -136,7 +169,7 @@ object GoodReadsBooksLoader {
       //.option("delimiter", ";")
       //.option("inferSchema", true)
       .schema(mySchema)
-      .load("data/goodreads/goodreads-onebook.json")
+      .load("data/goodreads/goodreads_books_children.json")
 
     println("Book schema")
     dataFrame.printSchema()
