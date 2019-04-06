@@ -169,7 +169,7 @@ object GoodReadsBooksLoader {
       //.option("delimiter", ";")
       //.option("inferSchema", true)
       .schema(mySchema)
-      .load("data/goodreads/goodreads_books_children.json")
+      .load("data/goodreads/goodreads-onebook.json")
 
     println("Book schema")
     dataFrame.printSchema()
