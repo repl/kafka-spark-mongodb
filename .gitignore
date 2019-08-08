@@ -18,3 +18,4 @@ target/*
 logs/*
 .settings/
 checkpoint/
+.ensime_cache/

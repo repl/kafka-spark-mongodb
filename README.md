@@ -25,3 +25,10 @@ $ docker-compose -f kafka-docker/docker-compose.yml up -d
 And to shut it down:
 docker-compose -f kafka-docker/docker-compose.yml down
 The ports are 2181 for ZooKeeper and 9092 for Kafka
+
+#### Run programs with sbt
+
+``` shell
+sbt test:compile
+sbt runMain org.repl.kafkasparkmongo.BXBooksLoader
+```
