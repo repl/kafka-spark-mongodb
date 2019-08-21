@@ -10,14 +10,16 @@ import org.apache.spark.streaming.kafka010.{ConsumerStrategies, KafkaUtils, Loca
 import org.apache.spark.streaming.{Seconds, StreamingContext}
 import org.apache.spark.{SparkConf, SparkContext}
 import org.repl.kafkasparkmongo.util.{SimpleKafkaClient, SparkKafkaSink}
+import org.apache.spark.sql.functions.{col, split, substring, lit, lower, concat}
+import org.mindrot.jbcrypt.BCrypt
 
 import scala.util.parsing.json.JSONObject
 
-object BXBookUsersLoader {
+object BXBooksLoader {
 
   def main(args: Array[String]) {
 
-    val topic = "TopicBooks"
+    val topic = "TopicBookUsers"
 
     val conf = new SparkConf().setAppName("SimpleStreamingFromRDD").setMaster("local[4]")
     val sc = new SparkContext(conf)
@@ -35,7 +37,7 @@ object BXBookUsersLoader {
       )
     )
 
-    val writeConfig = WriteConfig(Map("uri" -> "mongodb://test:qwerty123@127.0.0.1/test.books"))
+    val writeConfig = WriteConfig(Map("uri" -> "mongodb://test:qwerty123@127.0.0.1/test.bookusers"))
 
     // now, whenever this Kafka stream produces data the resulting RDD will be printed
     kafkaStream.map(v => v.value).foreachRDD(r => {
@@ -67,7 +69,7 @@ object BXBookUsersLoader {
 
         send(sc, topic, client.basicStringStringProducer)
 
-        Thread.sleep(10000l)
+        Thread.sleep(20000l)
         println("*** requesting streaming termination")
         ssc.stop(stopSparkContext = false, stopGracefully = true)
       }
@@ -99,15 +101,22 @@ object BXBookUsersLoader {
     */
   def send(sc: SparkContext, topic: String, config: Properties): Unit = {
     val spark = SparkSession.builder.config(sc.getConf).getOrCreate()
+
+    println("*** producing data")
+    val namesDF = spark.read.format("csv")
+      .option("header", "true").option("inferSchema", "true").option("delimiter", ",")
+      .load("data/names/30K-names")
+      .withColumn("firstname4ch", lower(substring(col("firstname"), 0, 4)))
+      .withColumn("lastname4ch", lower(substring(col("lastname"), 0, 4)))
+      .withColumn("username", concat(col("firstname4ch"), col("lastname4ch")))
+      .withColumn("password", lit(BCrypt.hashpw("password", BCrypt.gensalt())))
+      .drop("firstname4ch")
+      .drop("lastname4ch")
+
     val mySchema = StructType(Array(
-      StructField("ISBN", StringType),
-      StructField("Title", StringType),
-      StructField("Author", StringType),
-      StructField("YearOfPublication", StringType),
-      StructField("Publisher", StringType),
-      StructField("ImageUrlS", StringType),
-      StructField("ImageUrlM", StringType),
-      StructField("ImageUrlL", StringType)
+      StructField("id", StringType),
+      StructField("location", StringType),
+      StructField("age", StringType)
     ))
     val dataFrame = spark.sqlContext
       .read
@@ -116,21 +125,43 @@ object BXBookUsersLoader {
       //.option("mode", "DROPMALFORMED")
       .option("delimiter", ";")
       .option("inferSchema", true)
-      //.schema(mySchema)
-      .load("data/BX-Books.csv")
+      .schema(mySchema)
+      .load("data/bx/BX-Users.csv")
+      .toDF(Seq("id", "location", "age"): _*)
+      .withColumn("_tmp", split(col("location"), "\\,"))
+      .select(
+        col("id"),
+        col("_tmp").getItem(0).as("city"),
+        col("_tmp").getItem(1).as("state"),
+        col("_tmp").getItem(2).as("country"),
+        col("age")
+      ).drop("_tmp")
 
-    println("Book schema")
-    dataFrame.printSchema()
-    println("Books count: " + dataFrame.count())
-    println("*** producing data")
+    println("Users count in bx users dataframe: " + dataFrame.count())
+    val joinedDF = namesDF.join(dataFrame, Seq("id")).withColumn("usernum", col("id")).drop("id")
+    println("JoinedDF schema")
+    joinedDF.printSchema()
+    println("Users count in joined dataframe: " + joinedDF.count())
 
     val kafkaSink = sc.broadcast(SparkKafkaSink(config))
-    dataFrame.rdd.foreach { row =>
+    joinedDF.rdd.foreach { row =>
       // NOTE:
       //     1) the keys and values are strings, which is important when receiving them
       //     2) We don't specify which Kafka partition to send to, so a hash of the key
       //        is used to determine this
-      kafkaSink.value.send(topic, row.getString(0), JSONObject(row.getValuesMap(row.schema.fieldNames)).toString())
+      var rowMap: Map[String, Any] = row.getValuesMap(row.schema.fieldNames)
+      val userNum = row.getInt(8).toString
+      //rowMap  ("firstname", "alex")
+      try {
+        kafkaSink.value.send(topic, userNum, JSONObject(rowMap).toString())
+      } catch {
+        case npe: NullPointerException => {
+            println("Got NPE for rowMap " + rowMap)
+        }
+        case e : Throwable => {
+          println(e)
+        }
+      }
     }
 
     //streamingDataFrame.createOrReplaceTempView("books")

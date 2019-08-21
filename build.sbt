@@ -29,4 +29,6 @@ libraryDependencies += "com.fasterxml.jackson.module" %% "jackson-module-scala" 
 
 libraryDependencies += "com.typesafe.scala-logging" %% "scala-logging" % "3.8.0"
 
+libraryDependencies += "org.mindrot" % "jbcrypt" % "0.3m"
+
 scalacOptions += "-target:jvm-1.8"
