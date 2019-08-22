@@ -2,24 +2,26 @@ package org.repl.kafkasparkmongo
 
 import java.util.{Arrays, Properties}
 
-import com.mongodb.spark.MongoSpark
-import com.mongodb.spark.config.WriteConfig
+import com.mongodb.spark._
+import com.mongodb.spark.config.{ReadConfig, WriteConfig}
+import com.mongodb.spark.sql._
+import com.mongodb.spark.sql.fieldTypes.ObjectId
 import org.apache.spark.sql.SparkSession
-import org.apache.spark.sql.types.{StringType, StructField, StructType}
+import org.apache.spark.sql.types.{IntegerType, StringType, StructField, StructType}
 import org.apache.spark.streaming.kafka010.{ConsumerStrategies, KafkaUtils, LocationStrategies}
 import org.apache.spark.streaming.{Seconds, StreamingContext}
 import org.apache.spark.{SparkConf, SparkContext}
 import org.repl.kafkasparkmongo.util.{SimpleKafkaClient, SparkKafkaSink}
-import org.apache.spark.sql.functions.{col, split, substring, lit, lower, concat}
+import org.apache.spark.sql.functions.{col, concat, lit, lower, split, substring, typedLit, udf}
 import org.mindrot.jbcrypt.BCrypt
 
 import scala.util.parsing.json.JSONObject
 
-object BXBookUsersLoader {
+object BXBookUserRatingsLoader {
 
   def main(args: Array[String]) {
 
-    val topic = "TopicBookUsers"
+    val topic = "TopicBookUserRatings"
 
     val conf = new SparkConf().setAppName("SimpleStreamingFromRDD").setMaster("local[4]")
     val sc = new SparkContext(conf)
@@ -37,7 +39,7 @@ object BXBookUsersLoader {
       )
     )
 
-    val writeConfig = WriteConfig(Map("uri" -> "mongodb://test:qwerty123@127.0.0.1/test.bookusers"))
+    val writeConfig = WriteConfig(Map("uri" -> "mongodb://lms:qwerty123@127.0.0.1/lms_db.UserBookRating"))
 
     // now, whenever this Kafka stream produces data the resulting RDD will be printed
     kafkaStream.map(v => v.value).foreachRDD(r => {
@@ -48,8 +50,8 @@ object BXBookUsersLoader {
         // the number of partitions of the topic (which also happens to be four.)
         println("*** " + r.getNumPartitions + " partitions")
         r.glom().foreach(a => println("*** partition size = " + a.size))
-
-        val df = spark.read.json(r)
+        val toObjectId = udf[ObjectId,String](new ObjectId(_))
+        val df = spark.read.json(r).withColumn("uid", toObjectId(col("userId")))
         df.printSchema()
         //r.foreach(s => println(s))
         println("Writing to MongoDb")
@@ -94,7 +96,6 @@ object BXBookUsersLoader {
   /**
     * Publish some data to a topic. Encapsulated here to ensure serializable.
     *
-    * @param max
     * @param sc
     * @param topic
     * @param config
@@ -103,20 +104,16 @@ object BXBookUsersLoader {
     val spark = SparkSession.builder.config(sc.getConf).getOrCreate()
 
     println("*** producing data")
-    val namesDF = spark.read.format("csv")
-      .option("header", "true").option("inferSchema", "true").option("delimiter", ",")
-      .load("data/names/30K-names")
-      .withColumn("firstname4ch", lower(substring(col("firstname"), 0, 4)))
-      .withColumn("lastname4ch", lower(substring(col("lastname"), 0, 4)))
-      .withColumn("username", concat(col("firstname4ch"), col("lastname4ch")))
-      .withColumn("password", lit(BCrypt.hashpw("password", BCrypt.gensalt())))
-      .drop("firstname4ch")
-      .drop("lastname4ch")
+    val readConfig = ReadConfig(Map("uri" -> "mongodb://lms:qwerty123@127.0.0.1/lms_db.User"))
+    val usersDF = spark.read.mongo(readConfig)
+    println("Users count: " + usersDF.count())
+    println("usersDF schema")
+    usersDF.printSchema()
 
     val mySchema = StructType(Array(
-      StructField("id", StringType),
-      StructField("location", StringType),
-      StructField("age", StringType)
+      StructField("usernum", StringType),
+      StructField("ISBN", StringType),
+      StructField("rating", StringType)
     ))
     val dataFrame = spark.sqlContext
       .read
@@ -126,22 +123,26 @@ object BXBookUsersLoader {
       .option("delimiter", ";")
       .option("inferSchema", true)
       .schema(mySchema)
-      .load("data/bx/BX-Users.csv")
-      .toDF(Seq("id", "location", "age"): _*)
-      .withColumn("_tmp", split(col("location"), "\\,"))
-      .select(
-        col("id"),
-        col("_tmp").getItem(0).as("city"),
-        col("_tmp").getItem(1).as("state"),
-        col("_tmp").getItem(2).as("country"),
-        col("age")
-      ).drop("_tmp")
+      .load("data/bx/BX-Book-Ratings.csv")
+      .toDF(Seq("usernum", "ISBN", "Rating"): _*)
 
-    println("Users count in bx users dataframe: " + dataFrame.count())
-    val joinedDF = namesDF.join(dataFrame, Seq("id")).withColumn("usernum", col("id")).drop("id")
+    println("BookRatings count in bx dataframe: " + dataFrame.count())
+    println("Dataframe schema")
+    dataFrame.printSchema()
+
+    val joinedDF = usersDF.join(dataFrame, Seq("usernum"))
+      .withColumn("ratingNum", col("rating").cast(IntegerType))
+      .drop("rating")
+      .select(
+        col("_id").as("userId"),
+        col("firstname"),
+        col("lastname"),
+        col("ISBN"),
+        col("ratingNum").as("rating")
+      )
     println("JoinedDF schema")
     joinedDF.printSchema()
-    println("Users count in joined dataframe: " + joinedDF.count())
+    println("BookRatings count in joined dataframe: " + joinedDF.count())
 
     val kafkaSink = sc.broadcast(SparkKafkaSink(config))
     joinedDF.rdd.foreach { row =>
@@ -150,10 +151,12 @@ object BXBookUsersLoader {
       //     2) We don't specify which Kafka partition to send to, so a hash of the key
       //        is used to determine this
       var rowMap: Map[String, Any] = row.getValuesMap(row.schema.fieldNames)
-      val userNum = row.getInt(8).toString
-      //rowMap  ("firstname", "alex")
+      val mutableRowMap = collection.mutable.Map(rowMap.toSeq: _*)
+      mutableRowMap.remove("userId")
+      val userId = row.getStruct(0).get(0).toString
+      mutableRowMap.put("userId", userId)
       try {
-        kafkaSink.value.send(topic, userNum, JSONObject(rowMap).toString())
+        kafkaSink.value.send(topic, userId, JSONObject(mutableRowMap.toMap).toString())
       } catch {
         case npe: NullPointerException => {
             println("Got NPE for rowMap " + rowMap)

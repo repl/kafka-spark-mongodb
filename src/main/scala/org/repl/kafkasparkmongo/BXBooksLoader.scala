@@ -13,7 +13,7 @@ import org.repl.kafkasparkmongo.util.{SimpleKafkaClient, SparkKafkaSink}
 
 import scala.util.parsing.json.JSONObject
 
-object BXBookUsersLoader {
+object BXBooksLoader {
 
   def main(args: Array[String]) {
 
