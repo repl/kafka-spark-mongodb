@@ -17,6 +17,8 @@ libraryDependencies += "org.apache.spark" %% "spark-sql-kafka-0-10" % "2.4.3"
 
 libraryDependencies += "org.apache.spark" %% "spark-sql" % "2.4.3"
 
+libraryDependencies += "org.apache.spark" %% "spark-mllib" % "2.4.3"
+
 libraryDependencies += "org.apache.kafka" %% "kafka" % "2.2.0"
 
 libraryDependencies += "org.mongodb.spark" %% "mongo-spark-connector" % "2.4.0"

@@ -1,18 +1,18 @@
 package org.repl.kafkasparkmongo
 
-import java.util.{Arrays, Properties}
+import java.util.{ Arrays, Properties }
 
 import com.mongodb.spark._
-import com.mongodb.spark.config.{ReadConfig, WriteConfig}
+import com.mongodb.spark.config.{ ReadConfig, WriteConfig }
 import com.mongodb.spark.sql._
 import com.mongodb.spark.sql.fieldTypes.ObjectId
 import org.apache.spark.sql.SparkSession
-import org.apache.spark.sql.types.{IntegerType, StringType, StructField, StructType}
-import org.apache.spark.streaming.kafka010.{ConsumerStrategies, KafkaUtils, LocationStrategies}
-import org.apache.spark.streaming.{Seconds, StreamingContext}
-import org.apache.spark.{SparkConf, SparkContext}
-import org.repl.kafkasparkmongo.util.{SimpleKafkaClient, SparkKafkaSink}
-import org.apache.spark.sql.functions.{col, concat, lit, lower, split, substring, typedLit, udf}
+import org.apache.spark.sql.types.{ IntegerType, StringType, StructField, StructType }
+import org.apache.spark.streaming.kafka010.{ ConsumerStrategies, KafkaUtils, LocationStrategies }
+import org.apache.spark.streaming.{ Seconds, StreamingContext }
+import org.apache.spark.{ SparkConf, SparkContext }
+import org.repl.kafkasparkmongo.util.{ SimpleKafkaClient, SparkKafkaSink }
+import org.apache.spark.sql.functions.{ col, concat, lit, lower, split, substring, typedLit, udf }
 import org.mindrot.jbcrypt.BCrypt
 
 import scala.util.parsing.json.JSONObject
@@ -35,9 +35,7 @@ object BXBookUserRatingsLoader {
       LocationStrategies.PreferConsistent,
       ConsumerStrategies.Subscribe[String, String](
         Arrays.asList(topic),
-        props.asInstanceOf[java.util.Map[String, Object]]
-      )
-    )
+        props.asInstanceOf[java.util.Map[String, Object]]))
 
     val writeConfig = WriteConfig(Map("uri" -> "mongodb://lms:qwerty123@127.0.0.1/lms_db.UserBookRating"))
 
@@ -50,7 +48,7 @@ object BXBookUserRatingsLoader {
         // the number of partitions of the topic (which also happens to be four.)
         println("*** " + r.getNumPartitions + " partitions")
         r.glom().foreach(a => println("*** partition size = " + a.size))
-        val toObjectId = udf[ObjectId,String](new ObjectId(_))
+        val toObjectId = udf[ObjectId, String](new ObjectId(_))
         val df = spark.read.json(r).withColumn("uid", toObjectId(col("userId")))
         df.printSchema()
         //r.foreach(s => println(s))
@@ -94,12 +92,12 @@ object BXBookUserRatingsLoader {
   }
 
   /**
-    * Publish some data to a topic. Encapsulated here to ensure serializable.
-    *
-    * @param sc
-    * @param topic
-    * @param config
-    */
+   * Publish some data to a topic. Encapsulated here to ensure serializable.
+   *
+   * @param sc
+   * @param topic
+   * @param config
+   */
   def send(sc: SparkContext, topic: String, config: Properties): Unit = {
     val spark = SparkSession.builder.config(sc.getConf).getOrCreate()
 
@@ -113,8 +111,7 @@ object BXBookUserRatingsLoader {
     val mySchema = StructType(Array(
       StructField("usernum", StringType),
       StructField("ISBN", StringType),
-      StructField("rating", StringType)
-    ))
+      StructField("rating", StringType)))
     val dataFrame = spark.sqlContext
       .read
       .format("csv")
@@ -138,8 +135,7 @@ object BXBookUserRatingsLoader {
         col("firstname"),
         col("lastname"),
         col("ISBN"),
-        col("ratingNum").as("rating")
-      )
+        col("ratingNum").as("rating"))
     println("JoinedDF schema")
     joinedDF.printSchema()
     println("BookRatings count in joined dataframe: " + joinedDF.count())
@@ -159,9 +155,9 @@ object BXBookUserRatingsLoader {
         kafkaSink.value.send(topic, userId, JSONObject(mutableRowMap.toMap).toString())
       } catch {
         case npe: NullPointerException => {
-            println("Got NPE for rowMap " + rowMap)
+          println("Got NPE for rowMap " + rowMap)
         }
-        case e : Throwable => {
+        case e: Throwable => {
           println(e)
         }
       }
